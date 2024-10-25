@@ -2,7 +2,7 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
     <application
         android:label="novi_indus_machine_test"
-        android:name="${Novi Ayurveic}"
+        android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"

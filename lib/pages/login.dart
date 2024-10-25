@@ -65,7 +65,7 @@ class LoginScreen extends StatelessWidget {
 
                         if (username.isEmpty || password.isEmpty) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Please fill in all fields')),
+                            const SnackBar(content: Text('Please fill in all feilds')),
                           );
                           return;
                         }
@@ -75,7 +75,7 @@ class LoginScreen extends StatelessWidget {
                           Navigator.pushReplacementNamed(context, '/home');
                         } else {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Login failed. Please try again.')),
+                            const SnackBar(content: Text('Login faild. Please try again.')),
                           );
                         }
                       },
