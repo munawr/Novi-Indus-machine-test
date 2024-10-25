@@ -1,7 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
     <application
         android:label="novi_indus_machine_test"
-        android:name="${applicationName}"
+        android:name="${Novi Ayurveic}"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"
