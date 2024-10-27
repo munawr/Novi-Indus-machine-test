@@ -1,71 +1,140 @@
 import 'package:flutter/material.dart';
+import 'package:novi_indus_machine_test/constants/paths.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class AuthState {
+  final bool isAuthenticated;
+  final bool isLoading;
+  final String? error;
+  final Map<String, dynamic>? userData;
+  final String? token;
+
+  AuthState({
+    this.isAuthenticated = false,
+    this.isLoading = false,
+    this.error,
+    this.userData,
+    this.token,
+  });
+
+  AuthState copyWith({
+    bool? isAuthenticated,
+    bool? isLoading,
+    String? error,
+    Map<String, dynamic>? userData,
+    String? token,
+  }) {
+    return AuthState(
+      isAuthenticated: isAuthenticated ?? this.isAuthenticated,
+      isLoading: isLoading ?? this.isLoading,
+      error: error,
+      userData: userData ?? this.userData,
+      token: token ?? this.token,
+    );
+  }
+}
 
 class AuthProvider extends ChangeNotifier {
-  String? _token;
-  Map<String, dynamic>? _userData;
+  AuthState _state = AuthState();
 
-  String? get token => _token;
-  Map<String, dynamic>? get userData => _userData;
+  AuthState get state => _state;
+  bool get isAuthenticated => _state.isAuthenticated;
+  bool get isLoading => _state.isLoading;
+  String? get error => _state.error;
+  Map<String, dynamic>? get userData => _state.userData;
+  String? get token => _state.token;
 
-  Future<bool> login(String username, String password) async {
-    final url = Uri.parse('https://flutter-amr.noviindus.in/api/Login');
-    var request = http.MultipartRequest('POST', url);
+  AuthProvider() {
+    _loadStoredData();
+  }
 
-    request.fields['username'] = username;
-    request.fields['password'] = password;
-    request.headers.addAll({
-      'Content-Type': 'multipart/form-data',
-    });
-
+  Future<void> _loadStoredData() async {
     try {
-      final response = await request.send();
-      if (response.statusCode == 200) {
-        final res = await response.stream.bytesToString();
-        final data = jsonDecode(res);
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+      final userDataString = prefs.getString('userData');
 
-        if (data['status'] == true) {
-          _token = data['token'];
-          _userData = data['user_details'];
-
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('token', _token!);
-          await prefs.setString('userData', jsonEncode(_userData));
-
-          notifyListeners();
-          return true;
-        } else {
-          return false;
-        }
-      } else {
-        print("Login failed with status: ${response.statusCode}");
-        return false;
+      if (token != null && userDataString != null) {
+        _state = _state.copyWith(
+          isAuthenticated: true,
+          token: token,
+          userData: json.decode(userDataString),
+        );
+        notifyListeners();
       }
     } catch (e) {
-      print("Login error: $e");
-      return false;
+      _state = _state.copyWith(error: 'Failed to load stored data: $e');
+      notifyListeners();
     }
   }
 
-  Future<void> loadStoredData() async {
-    final prefs = await SharedPreferences.getInstance();
-    _token = prefs.getString('token');
-    String? userDataString = prefs.getString('userData');
+  Future<bool> login(String username, String password) async {
+    _state = _state.copyWith(isLoading: true, error: null);
+    notifyListeners();
 
-    if (userDataString != null) {
-      _userData = jsonDecode(userDataString);
+    try {
+      final url = Uri.parse('$baseUrl$userLogin');
+      final request = http.MultipartRequest('POST', url)
+        ..fields['username'] = username
+        ..fields['password'] = password
+        ..headers.addAll({'Content-Type': 'multipart/form-data'});
+
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+
+        if (data['status'] == true) {
+          await _saveAuthData(data['token'], data['user_details']);
+          return true;
+        } else {
+          _handleError('Login failed: ${data['message'] ?? 'Unknown error'}');
+          return false;
+        }
+      } else {
+        _handleError('Server error: ${response.statusCode}');
+        return false;
+      }
+    } catch (e) {
+      _handleError('Network error: $e');
+      return false;
+    } finally {
+      _state = _state.copyWith(isLoading: false);
+      notifyListeners();
     }
+  }
 
+  Future<void> _saveAuthData(String token, Map<String, dynamic> userData) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('token', token);
+    await prefs.setString('userData', json.encode(userData));
+
+    _state = _state.copyWith(
+      isAuthenticated: true,
+      token: token,
+      userData: userData,
+      error: null,
+    );
     notifyListeners();
   }
 
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
-    _token = null;
-    _userData = null;
+    _state = AuthState();
+    notifyListeners();
+  }
+
+  void _handleError(String message) {
+    _state = _state.copyWith(
+      error: message,
+      isAuthenticated: false,
+      token: null,
+      userData: null,
+    );
     notifyListeners();
   }
 }

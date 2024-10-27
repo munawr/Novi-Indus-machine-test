@@ -7,43 +7,119 @@ class PatientListScreen extends StatefulWidget {
   const PatientListScreen({super.key});
 
   @override
-  _PatientListScreenState createState() => _PatientListScreenState();
+  State<PatientListScreen> createState() => _PatientListScreenState();
 }
 
 class _PatientListScreenState extends State<PatientListScreen> {
+  final _searchController = TextEditingController();
+  bool _isSearching = false;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future.delayed(Duration.zero, () {
-        Provider.of<PatientProvider>(context, listen: false).fetchPatients();
-      });
-    });
+    _loadPatients();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadPatients() async {
+    await context.read<PatientProvider>().fetchPatients();
+  }
+
+  Widget _buildSearchField() {
+    return TextField(
+      controller: _searchController,
+      decoration: InputDecoration(
+        hintText: 'Search patients...',
+        border: InputBorder.none,
+        suffixIcon: IconButton(
+          icon: const Icon(Icons.clear),
+          onPressed: () {
+            _searchController.clear();
+            setState(() => _isSearching = false);
+          },
+        ),
+      ),
+      onChanged: (value) {
+        // Implement search logic
+        setState(() {});
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final patientProvider = Provider.of<PatientProvider>(context);
-
     return Scaffold(
-      appBar: AppBar(title: const Text("Patient List")),
-      body: RefreshIndicator(
-        onRefresh: () async {
-          await patientProvider.fetchPatients();
+      appBar: AppBar(
+        title: _isSearching
+            ? _buildSearchField()
+            : const Text('Patient List'),
+        actions: [
+          IconButton(
+            icon: Icon(_isSearching ? Icons.close : Icons.search),
+            onPressed: () {
+              setState(() => _isSearching = !_isSearching);
+              if (!_isSearching) {
+                _searchController.clear();
+              }
+            },
+          ),
+        ],
+      ),
+      body: Consumer<PatientProvider>(
+        builder: (context, provider, _) {
+          if (provider.isLoading) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (provider.error != null) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    provider.error!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.red),
+                  ),
+                  ElevatedButton(
+                    onPressed: _loadPatients,
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          final patients = provider.patients;
+          if (patients.isEmpty) {
+            return const Center(
+              child: Text('No patients found'),
+            );
+          }
+
+          return RefreshIndicator(
+            onRefresh: () => provider.fetchPatients(refresh: true),
+            child: ListView.separated(
+              padding: const EdgeInsets.all(8),
+              itemCount: patients.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                return PatientCard(patient: patients[index]);
+              },
+            ),
+          );
         },
-        child: patientProvider.isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : patientProvider.errorMessage.isNotEmpty
-            ? Center(child: Text(patientProvider.errorMessage))
-            : patientProvider.patients.isEmpty
-            ? Center(child: Image.asset("assets/images/empty_list.png"))
-            : ListView.builder(
-          itemCount: patientProvider.patients.length,
-          itemBuilder: (context, index) {
-            final patient = patientProvider.patients[index];
-            return PatientCard(patient: patient);
-          },
-        ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.pushNamed(context, '/register_patient');
+        },
+        child: const Icon(Icons.add),
       ),
     );
   }
@@ -52,24 +128,99 @@ class _PatientListScreenState extends State<PatientListScreen> {
 class PatientCard extends StatelessWidget {
   final PatientElement patient;
 
-  const PatientCard({super.key, required this.patient});
+  const PatientCard({
+    super.key,
+    required this.patient,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      margin: const EdgeInsets.all(8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Name: ${patient.name}', style: const TextStyle(fontWeight: FontWeight.bold)),
-            Text('Phone: ${patient.phone}'),
-            Text('Address: ${patient.address}'),
-            Text('Branch: ${patient.branch?.name ?? 'Unknown'}'),
-            Text('Payment Method: ${patient.payment}'),
-            Text('Total Amount: ${patient.totalAmount}'),
-          ],
+      elevation: 2,
+      child: InkWell(
+        onTap: () {
+          // Navigate to patient details
+          Navigator.pushNamed(
+            context,
+            '/patient_details',
+            arguments: patient,
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      patient.name ?? 'Unknown',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).primaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      patient.branch?.name ?? 'Unknown Branch',
+                      style: TextStyle(
+                        color: Theme.of(context).primaryColor,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.phone, size: 16),
+                  const SizedBox(width: 8),
+                  Text(patient.phone ?? 'No phone'),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  const Icon(Icons.location_on, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      patient.address ?? 'No address',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Payment: ${patient.payment}',
+                    style: const TextStyle(fontStyle: FontStyle.italic),
+                  ),
+                  Text(
+                    'Amount: ₹${patient.totalAmount}',
+                    style: TextStyle(
+                      color: Theme.of(context).primaryColor,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

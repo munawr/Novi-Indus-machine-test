@@ -1,62 +1,117 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../constants/paths.dart';
 import '../models/patient_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+class PatientState {
+  final List<PatientElement> patients;
+  final bool isLoading;
+  final String? error;
+  final bool isRefreshing;
+
+  PatientState({
+    this.patients = const [],
+    this.isLoading = false,
+    this.error,
+    this.isRefreshing = false,
+  });
+
+  PatientState copyWith({
+    List<PatientElement>? patients,
+    bool? isLoading,
+    String? error,
+    bool? isRefreshing,
+  }) {
+    return PatientState(
+      patients: patients ?? this.patients,
+      isLoading: isLoading ?? this.isLoading,
+      error: error,
+      isRefreshing: isRefreshing ?? this.isRefreshing,
+    );
+  }
+}
+
 class PatientProvider extends ChangeNotifier {
-  List<PatientElement> _patients = [];
-  bool _isLoading = false;
-  String _errorMessage = '';
+  PatientState _state = PatientState();
 
-  List<PatientElement> get patients => _patients;
-  bool get isLoading => _isLoading;
-  String get errorMessage => _errorMessage;
+  PatientState get state => _state;
+  List<PatientElement> get patients => _state.patients;
+  bool get isLoading => _state.isLoading;
+  String? get error => _state.error;
 
-  Future<void> fetchPatients() async {
-    _isLoading = true;
-    _errorMessage = '';
-    notifyListeners();
+  Future<void> fetchPatients({bool refresh = false}) async {
+    if (!refresh && _state.isLoading) return;
 
     try {
+      _state = _state.copyWith(
+        isLoading: !refresh,
+        isRefreshing: refresh,
+        error: null,
+      );
+      notifyListeners();
+
       final prefs = await SharedPreferences.getInstance();
-      String? token = prefs.getString('token');
+      final token = prefs.getString('token');
+      if (token == null) throw Exception('No token found');
 
-      if (token == null) {
-        _errorMessage = 'No token found. Please log in.';
-        _isLoading = false;
-        notifyListeners();
-        return;
-      }
-
-      var headers = {
-        'Content-Type': 'multipart/form-data',
-        'Authorization': 'Bearer $token',
-      };
-
-      var response = await http.get(
-        Uri.parse('https://flutter-amr.noviindus.in/api/PatientList'),
-        headers: headers,
+      final response = await http.get(
+        Uri.parse('$baseUrl$list'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
       );
 
       if (response.statusCode == 200) {
-        var data = json.decode(response.body);
-        if (data is Map<String, dynamic> && data.containsKey("patient")) {
-          Patient patientData = Patient.fromJson(data);
-          _patients = patientData.patients;
-        } else {
-          _errorMessage = "Unexpected response structure";
-        }
+        final data = json.decode(response.body);
+        await _processPatientData(data);
       } else if (response.statusCode == 401) {
-        _errorMessage = 'User not logged in. Please log in to access this data.';
+        throw Exception('Authentication required');
       } else {
-        _errorMessage = 'Failed to fetch patients. Status code: ${response.statusCode}';
+        throw Exception('Failed to fetch patients: ${response.statusCode}');
       }
     } catch (e) {
-      _errorMessage = 'An error occurred: $e';
+      _handleError(e.toString());
+    } finally {
+      _state = _state.copyWith(
+        isLoading: false,
+        isRefreshing: false,
+      );
+      notifyListeners();
     }
+  }
 
-    _isLoading = false;
+  Future<void> _processPatientData(Map<String, dynamic> data) async {
+    if (data.containsKey("patient")) {
+      final patientData = Patient.fromJson(data);
+      await _cacheMasterData(data);
+
+      _state = _state.copyWith(
+        patients: patientData.patients,
+        error: null,
+      );
+    } else {
+      throw Exception('Invalid data format');
+    }
+  }
+
+  Future<void> _cacheMasterData(Map<String, dynamic> data) async {
+    final prefs = await SharedPreferences.getInstance();
+    final branches = data['branches'] ?? [];
+    final treatments = data['treatments'] ?? [];
+
+    await prefs.setString('branches', json.encode(branches));
+    await prefs.setString('treatments', json.encode(treatments));
+  }
+
+  void _handleError(String message) {
+    _state = _state.copyWith(
+      error: message,
+      isLoading: false,
+      isRefreshing: false,
+    );
     notifyListeners();
   }
 }
